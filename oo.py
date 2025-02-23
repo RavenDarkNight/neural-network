@@ -69,11 +69,6 @@ for epoch in range(epochs):
     b1 -= learning_rate * db1
     W2 -= learning_rate * dW2
     b2 -= learning_rate * db2
-    # Логирование
-    if epoch % 1000 == 0:
-        predictions = np.argmax(a2, axis=1)
-        accuracy = np.mean(predictions == y)
-        print(f"Epoch {epoch}, Loss: {loss:.4f}, Accuracy: {accuracy:.2%}")
 
 # Функция предсказания
 def predict(X):
