@@ -1,9 +1,6 @@
 import pandas as pd 
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
-import matplotlib.pyplot as plt
-
-
 
 # Load and preprocess training data
 train = pd.read_csv('titanic/train.csv')
@@ -40,30 +37,14 @@ model.fit(X_train, y_train)
 X_test = test[['Pclass', 'Sex', 'Age', 'Fare']]
 predictions = model.predict(X_test)
 
-# Plot feature importances
-plt.figure(figsize=(10, 5))
-feature_importances = pd.DataFrame({
-    'feature': X.columns,
-    'importance': model.feature_importances_
-})
-feature_importances = feature_importances.sort_values('importance', ascending=False)
-
-plt.bar(feature_importances['feature'], feature_importances['importance'])
-plt.title('Feature Importances')
-plt.xlabel('Features')
-plt.ylabel('Importance')
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
-
-# Create submission DataFrame
+# Create submission DataFrame in the same format as gender_submission.csv
 submission = pd.DataFrame({
     'PassengerId': test_ids,
     'Survived': predictions
 })
 
-# Save predictions to CSV
-submission.to_csv('submission.csv', index=False)
+# Save predictions to CSV in the same format as gender_submission.csv
+submission.to_csv('gender_submission.csv', index=False)
 
 # Print validation metrics
 val_predictions = model.predict(X_val)
