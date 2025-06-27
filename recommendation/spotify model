@@ -1,5 +1,3 @@
-
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -89,7 +87,6 @@ class RecommendationModel(nn.Module):
 # --- Основной пайплайн ---
 
 df = pd.read_csv('dataset.csv')
-df = df.iloc[50000:]
 
 feature_processor = TrackFeatures()
 numerical_features, categorical_features, cat_sizes = feature_processor.prepare_features(df)
