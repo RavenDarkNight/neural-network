@@ -1,0 +1,178 @@
+
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from sklearn.preprocessing import StandardScaler, LabelEncoder 
+import pandas as pd 
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+class TrackFeatures:
+    def __init__(self):
+        self.scaler = StandardScaler()
+        self.categorical_columns = ['artists', 'album_name', 'track_name', 'track_genre', 'key', 'mode', 'time_signature']
+        self.numerical_columns = ['popularity', 'duration_ms', 'danceability', 'energy', 
+                                  'loudness', 'speechiness', 'acousticness', 'instrumentalness',
+                                  'liveness', 'valence', 'tempo']
+
+    def prepare_features(self, df):
+        numerical_features = df[self.numerical_columns].copy()
+        numerical_features['explicit'] = df['explicit'].astype(int)
+        numerical_features = self.scaler.fit_transform(numerical_features)
+
+        self.categorical_encoders = {}
+        categorical_features = []
+        cat_sizes = []
+        for col in self.categorical_columns:
+            if col in df.columns:
+                encoder = LabelEncoder()
+                encoded = encoder.fit_transform(df[col].astype(str))
+                categorical_features.append(encoded)
+                self.categorical_encoders[col] = encoder
+                cat_sizes.append(len(encoder.classes_))
+        return numerical_features, categorical_features, cat_sizes
+
+class SpotifyDataset(Dataset):
+    def __init__(self, user_ids, track_ids, numerical_features, categorical_features, popularity):
+        self.user_encoder = LabelEncoder()
+        self.track_encoder = LabelEncoder()
+        self.user_ids = torch.from_numpy(self.user_encoder.fit_transform(user_ids)).long()
+        self.track_ids = torch.from_numpy(self.track_encoder.fit_transform(track_ids)).long()
+        self.numerical_features = torch.as_tensor(np.array(numerical_features), dtype=torch.float32)
+        self.categorical_features = [torch.from_numpy(np.array(feat)).long() for feat in categorical_features]
+        self.popularity = torch.as_tensor(np.array(popularity), dtype=torch.float32)
+
+    def __len__(self):
+        return len( self.numtensor)
+
+    def __getitem__(self, idx):
+        categorical = [cat_feat[idx] for cat_feat in self.categorical_features]
+        return (
+            self.user_ids[idx],
+            self.track_ids[idx],
+            self.numerical_features[idx],
+            *categorical,
+            self.popularity[idx]
+        )
+
+class RecommendationModel(nn.Module):
+    def __init__(self, num_users, num_tracks, num_numerical, cat_sizes, embedding_dim=32):
+        super().__init__()
+        self.user_embedding = nn.Embedding(num_users, embedding_dim)
+        self.track_embedding = nn.Embedding(num_tracks, embedding_dim)
+        self.categorical_embeddings = nn.ModuleList([
+            nn.Embedding(size, embedding_dim) for size in cat_sizes
+        ])
+        total_features = embedding_dim * (2 + len(cat_sizes)) + num_numerical
+        self.fc_layers = nn.Sequential(
+            nn.Linear(total_features, 256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, user_input, track_input, numerical_input, *categorical_inputs):
+        user_emb = self.user_embedding(user_input)
+        track_emb = self.track_embedding(track_input)
+        cat_embs = [emb(cat) for emb, cat in zip(self.categorical_embeddings, categorical_inputs)]
+        x = torch.cat([user_emb, track_emb, numerical_input, *cat_embs], dim=1)
+        return self.fc_layers(x)
+
+
+
+# --- Основной пайплайн ---
+
+df = pd.read_csv('dataset.csv')
+df = df.iloc[50000:]
+
+feature_processor = TrackFeatures()
+numerical_features, categorical_features, cat_sizes = feature_processor.prepare_features(df)
+
+num_users = len(df['user_id'].unique())
+num_tracks = len(df['track_id'].unique())
+
+model = RecommendationModel(
+    num_users=num_users,
+    num_tracks=num_tracks,
+    num_numerical=numerical_features.shape[1],
+    cat_sizes=cat_sizes
+)
+
+dataset = SpotifyDataset(
+    df['user_id'].values,
+    df['track_id'].values,
+    numerical_features,
+    categorical_features,
+    df['popularity'].values
+)
+
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+
+
+num_users = len(df['user_id'].unique())
+num_tracks = len(df['track_id'].unique())
+
+
+
+dataset = SpotifyDataset(
+    df['user_id'].values,
+    df['track_id'].values,
+    numerical_features,
+    categorical_features,
+    df['popularity'].values  # используем popularity как целевую переменную
+)
+
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Обучение
+num_epochs = 10
+loss_history = []
+for epoch in range(num_epochs):
+    model.train()
+    total_loss = 0
+    for batch in dataloader:
+        user_ids, track_ids, numerical, *categorical, ratings = batch
+        
+        optimizer.zero_grad()
+        predictions = model(user_ids, track_ids, numerical, *categorical)
+        loss = criterion(predictions.squeeze(), ratings)
+        
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+    
+    avg_loss = total_loss / len(dataloader)
+    loss_history.append(avg_loss)
+    print(f'Эпоха {epoch+1}/{num_epochs}, Потери: {avg_loss:.4f}')
+
+
+plt.plot(range(1, num_epochs+1), loss_history, 'b-', label='Потери')
+plt.xlabel('Эпоха')
+plt.ylabel('Средние потери')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+model.eval()
+with torch.no_grad():
+    # Пример предсказания для одного трека
+    user_id = torch.LongTensor([0])
+    track_id = torch.LongTensor([1])
+    numerical = torch.FloatTensor([numerical_features[0]])  # берем характеристики для трека 1
+    categorical = [torch.LongTensor([feat[0]]) for feat in categorical_features]
+    
+    prediction = model(user_id, track_id, numerical, *categorical)
+    print(f"Предсказанная популярность: {prediction.item():.2f}")
+
