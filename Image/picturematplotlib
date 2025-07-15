@@ -1,0 +1,138 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+
+class NUMS(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Flatten(),          # Преобразует изображение 28x28 в вектор 784
+            nn.Linear(28*28, 128), # Первый слой: 784->128 нейронов
+            nn.BatchNorm1d(128), 
+            nn.ReLU(),            # Активация ReLU после первого слоя
+            nn.Dropout(0.2),      # Dropout для предотвращения переобучения
+            nn.Linear(128, 10)     # Выходной слой: 128->10 классов
+        )
+    
+    def forward(self, x):
+        return self.layers(x)
+
+def train_and_evaluate(model, train_loader, test_loader, epochs=5):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)  # Перемещаем модель на GPU если доступно
+    
+    # Настройка обучения
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()  # Создаем функцию потерь один раз
+    
+    losses = []
+    train_accuracies = []
+    test_accuracies = []
+    
+    print(f"Обучение на устройстве: {device}")
+    for epoch in range(epochs):
+        model.train()  # Включаем режим обучения
+        total_loss = 0
+        correct = 0
+        total = 0
+        
+        for images, labels in train_loader:
+            # Перемещаем данные на то же устройство, что и модель
+            images, labels = images.to(device), labels.to(device)
+            
+            optimizer.zero_grad()  # Обнуляем градиенты
+            outputs = model(images)  # Прямой проход
+            
+
+            loss = criterion(outputs, labels)  
+            
+            loss.backward()  # Обратное распространение
+            optimizer.step()  # Обновление весов
+            
+            # Сбор статистики
+            total_loss += loss.item()
+            _, predicted = torch.max(outputs, 1)  # Получаем предсказанные классы
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+        
+        # Вычисляем метрики эпохи
+        avg_loss = total_loss / len(train_loader)
+        train_accuracy = 100 * correct / total
+        
+        # Оценка на тестовых данных
+        test_accuracy = evaluate_model(model, test_loader, device)
+        
+        # Сохраняем метрики
+        losses.append(avg_loss)
+        train_accuracies.append(train_accuracy)
+        test_accuracies.append(test_accuracy)
+        
+        print(f"Эпоха {epoch+1}/{epochs}:")
+        print(f"  Потери: {avg_loss:.4f}")
+        print(f"  Точность (обучение): {train_accuracy:.2f}%")
+        print(f"  Точность (тест): {test_accuracy:.2f}%")
+    
+    return losses, train_accuracies, test_accuracies
+
+def evaluate_model(model, test_loader, device):
+    model.eval()  # Включаем режим оценки
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():  # Отключаем вычисление градиентов
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    
+    return 100 * correct / total
+
+def plot_results(losses, train_acc, test_acc):
+    epochs = range(1, len(losses) + 1)
+    
+    plt.figure(figsize=(12, 5))
+    
+    # График потерь
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, losses, 'b-', label='Потери')
+    plt.title('Динамика обучения')
+    plt.xlabel('Эпоха')
+    plt.ylabel('Потери')
+    plt.legend()
+    plt.grid(True)
+    
+    # График точности
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, train_acc, 'g-', label='Обучение')
+    plt.plot(epochs, test_acc, 'r-', label='Тест')
+    plt.title('Точность модели')
+    plt.xlabel('Эпоха')
+    plt.ylabel('Точность (%)')
+    plt.legend()
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    #  # Подготовка данных
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    
+    # Загрузка данных
+    train_data = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    test_data = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+    
+    train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=1000, shuffle=False)
+    
+    model = NUMS()
+    losses, train_acc, test_acc = train_and_evaluate(model, train_loader, test_loader, epochs=5)
+    plot_results(losses, train_acc, test_acc)
